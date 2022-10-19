@@ -1,0 +1,430 @@
+import sys
+from PyQt5.QtWidgets import QMainWindow, QApplication, QPushButton, QWidget, QAction, QSpacerItem, QSizePolicy
+from PyQt5.QtWidgets import QDesktopWidget, QTabWidget,QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout
+from PyQt5 import QtCore, QtWidgets,QtNetwork
+from PyQt5.QtWidgets import QMainWindow, QWidget, QLabel, QLineEdit, QMessageBox
+from PyQt5.QtWidgets import QPushButton, QProgressBar, QErrorMessage, QDialog, QFileDialog
+from PyQt5.QtCore import QSize, pyqtSlot
+from PyQt5.QtGui import QIntValidator, QIcon
+
+import requests
+from time import sleep
+import re
+import pandas as pd
+from bs4 import BeautifulSoup
+from tqdm import tqdm
+import urllib.request
+import time
+from fake_useragent import UserAgent
+from tqdm.gui import tqdm_gui
+
+ua = UserAgent()
+fake_ua = ua.random
+headers = {
+    "user-agent": fake_ua
+}
+
+paper_repos_dict = {
+        "Paper Title": [],
+        "Year": [],
+        "Author": [],
+        "Publication": [],
+        "Url of paper": [],
+}
+
+#final = pd.DataFrame()
+class App(QMainWindow):
+
+    def __init__(self):
+            super().__init__()
+            self.initUI()
+            
+
+    def initUI(self):
+            self.setWindowTitle('crawly-gui')
+            self.resize(720,600)
+            self.center()
+            self.table_widget = MyTableWidget(self)
+            self.setCentralWidget(self.table_widget)
+            stylesheet = """ 
+                QTabWidget::pane {
+                  border: 1px solid gray;
+                  top:-1px; 
+                  background: rgb(245, 245, 245);; 
+                } 
+
+                QTabBar::tab {
+                  background: rgb(230, 230, 230); 
+                  border: 1px solid gray; 
+                  padding: 15px;
+                } 
+
+                QTabBar::tab:selected { 
+                  background: lightgreen;
+                  border: 1px solid gray;
+                  margin-bottom: -1px; 
+                }
+                """
+            self.setStyleSheet(stylesheet)
+            self.show()
+
+    def center(self):
+            qr = self.frameGeometry()
+            cp = QDesktopWidget().availableGeometry().center()
+            qr.moveCenter(cp)
+            self.move(qr.topLeft())
+    
+class MyTableWidget(QWidget):
+    
+    def __init__(self, parent):
+        super(QWidget, self).__init__(parent)
+
+        self.layout = QFormLayout(self)
+
+        self.final = pd.DataFrame()
+        # Initialize tab screen
+        self.tabs = QTabWidget()
+        self.tab1 = QWidget()
+        self.tab2 = QWidget()
+        self.tabs.resize(300,200)
+        
+        # Add tabs
+        self.tabs.addTab(self.tab1,"crawly (crawl google scholar)")
+        self.tabs.addTab(self.tab2,"sci-hub downloader")
+
+
+     
+        self.tab1.layout = QGridLayout(self)
+        self.tab2.layout = QGridLayout(self)
+
+        self.namesearch = QLabel(self)
+        self.namesearch.setText('Search Query')
+        self.search_box = QLineEdit(self)
+
+        #self.search_box.move(160, 20)
+        #self.search_box.resize(500, 32)
+        #self.namesearch.move(40, 20)
+
+        self.startpages = QLabel(self)
+        self.startpages.setText('Start Page No. ')
+        self.start_pages = QLineEdit(self)
+        onlyInt = QIntValidator()
+        onlyInt.setRange(1, 99)
+        self.start_pages.setValidator(onlyInt)
+        
+        #self.start_pages.move(160, 60)
+        #self.start_pages.resize(190, 32)
+        #self.startpages.move(40, 60)
+
+        self.stoppages = QLabel(self)
+        self.stoppages.setText('Stop Page No. ')
+        self.stop_pages = QLineEdit(self)
+        onlyInt1 = QIntValidator()
+        onlyInt1.setRange(1, 99)
+        self.stop_pages.setValidator(onlyInt1)        #self.stop_pages.move(460, 60)
+        #self.stop_pages.resize(200, 32)
+        #self.stoppages.move(360, 60)
+        
+        self.pybutton = QPushButton('Search', self)
+        self.pybutton.clicked.connect(self.clickMethod)
+        #self.pybutton.resize(200,32)
+        #self.pybutton.move(160, 120)
+        self.pbar = QProgressBar(self)
+        self.pbar.hide()
+
+        self.finish = QLabel(self)
+        self.finish.setText('Crawling Complete, remember to save file.')
+        self.finish.hide()
+
+        #save file
+        self.save_file = QPushButton('Save CSV File', self)
+        self.save_file.clicked.connect(self.save_data_as_csv)
+        self.save_file.hide()
+
+        
+        self.done = QLabel(self)
+        self.done.setText('File Saved Successfully')
+        self.done.hide()
+
+        
+        self.verticalSpacer = QSpacerItem(40, 20, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        
+
+        self.msg = QLabel(self)
+        self.msg.setText('Coming Soon...')
+        #self.pushButton1 = QPushButton("PyQt5 button")
+        """
+        self.tab1.layout.addWidget(self.namesearch)
+        self.tab1.layout.addWidget(self.search_box)
+        self.tab1.layout.addWidget(self.startpages)
+        self.tab1.layout.addWidget(self.start_pages)
+        self.tab1.layout.addWidget(self.stoppages)
+        self.tab1.layout.addWidget(self.stop_pages)
+        self.tab1.layout.addWidget(self.pybutton)
+        self.tab1.setLayout(self.tab1.layout)
+        """
+        self.tab1.layout.addWidget(self.namesearch, 0,0)
+        self.tab1.layout.addWidget(self.search_box,0,1,1,3)
+        self.tab1.layout.addWidget(self.startpages,1,0)
+        self.tab1.layout.addWidget(self.start_pages,1,1)
+        self.tab1.layout.addWidget(self.stoppages,1,2)
+        self.tab1.layout.addWidget(self.stop_pages,1,3)
+        self.tab1.layout.addWidget(self.pybutton,3,1)
+        self.tab1.layout.addWidget(self.pbar,4,1, 1,3)
+        self.tab1.layout.addWidget(self.finish,5,1)
+        self.tab1.layout.addWidget(self.finish,6,1)
+        self.tab1.layout.addWidget(self.save_file,7,1)
+        self.tab1.layout.addWidget(self.done,7,2)
+        self.tab1.layout.addItem(self.verticalSpacer, 8, 0, QtCore.Qt.AlignTop)
+        
+        self.tab1.setLayout(self.tab1.layout)
+
+
+        self.tab2.layout.addWidget(self.msg, 0,0)
+        self.tab2.setLayout(self.tab2.layout)
+        #self.tab1.setRowStretch(4, 1) 
+        
+        # Add tabs to widget
+        self.layout.addWidget(self.tabs)
+        self.setLayout(self.layout)
+        
+    def connect(self):
+        try:
+            urllib.request.urlopen("https://google.com") #Python 3.x
+            return True
+        except:
+            return False
+
+    def get_paperinfo(self,paper_url):
+        
+        # download the page
+        response = requests.get(paper_url, headers=headers)
+
+        # check successful response
+
+        if(response.status_code == 200):
+        # parse using beautiful soup
+            paper_doc = BeautifulSoup(response.text, "html.parser")
+        else:
+            if(response.status_code == 429):
+                #raise Exception("Failed to fetch web page ")
+                #print("Google Scholar is blocking us, need to cool down")
+                return response.status_code
+            else:
+                print("Status code:", response.status_code)
+                return "error"
+        return paper_doc
+
+
+    # In[4]:
+
+
+    def get_tags(self,doc):
+        paper_tag = doc.select("[data-lid]")
+        cite_tag = doc.select("[title=Cite] + a")
+        link_tag = doc.find_all("h3", {"class": "gs_rt"})
+        author_tag = doc.find_all("div", {"class": "gs_a"})
+
+        return paper_tag, cite_tag, link_tag, author_tag
+
+
+    # In[5]:
+
+
+    def get_papertitle(self,paper_tag):
+
+        paper_names = []
+
+        for tag in paper_tag:
+            paper_names.append(tag.select("h3")[0].get_text())
+
+        return paper_names
+
+
+    # In[6]:
+
+
+    def get_link(self,link_tag):
+
+        links = []
+
+        for i in range(len(link_tag)):
+            try:
+                links.append(link_tag[i].a["href"])
+            except:
+                links.append('NA')
+        return links
+
+
+    # In[7]:
+
+
+    def get_author_year_publi_info(self,authors_tag):
+        years = []
+        publication = []
+        authors = []
+        for i in range(len(authors_tag)):
+            authortag_text = (authors_tag[i].text).split()
+            try:
+                year = int(re.search(r"\d+", authors_tag[i].text).group())
+            except:
+                year = 0
+            years.append(year)
+            publication.append(authortag_text[-1])
+            author = authortag_text[0] + " " + re.sub(",", "", authortag_text[1])
+            authors.append(author)
+
+        return years, publication, authors
+
+    # adding information in repository
+    def add_in_paper_repo(self,papername, year, author, publi, link):
+        paper_repos_dict["Paper Title"].extend(papername)
+        paper_repos_dict["Year"].extend(year)
+        paper_repos_dict["Author"].extend(author)
+        # paper_repos_dict['Citation'].extend(cite)
+        paper_repos_dict["Publication"].extend(publi)
+        paper_repos_dict["Url of paper"].extend(link)
+
+        return pd.DataFrame(paper_repos_dict)
+
+
+    def save_data_as_csv(self):
+        name = QFileDialog.getSaveFileName(self, 'Save File', filter='*.csv')
+        if(name[0] == ''):
+            pass
+        else:
+            #print(self.final)
+            self.final.to_csv(name[0]+".csv", index = False)
+            self.done.show()
+            
+
+    def doAction(self):
+        pass
+    
+    def clickMethod(self):
+        #print('Your name: ' + self.search_box.text())
+        #    setting for loop to set value of progress bar
+        if self.connect() !=True:
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle("Internet not working")
+            dlg.setIcon(QMessageBox.Information)
+            dlg.setText("Check your internet connection")
+            button = dlg.exec()
+        else:
+            #self.check_con()
+            if((self.search_box.text()=="" or self.start_pages.text() =="") or self.stop_pages.text()==""):
+                dlg = QMessageBox(self)
+                dlg.setWindowTitle("Fileds cannot be empty!")
+                dlg.setIcon(QMessageBox.Warning)
+                dlg.setText("Search query and page number fields cannot be empty")
+                button = dlg.exec()
+                #msg.setDetailedText("The details are as follows:")
+                #error_dialog.setText('Search query and page number fields cannot be empty')
+            elif (int(self.start_pages.text()) <=0 or int(self.start_pages.text())>99):
+                #error_dialog = QErrorMessage(self)
+                #error_dialog.setWindowTitle("Check start and stop value")
+                #error_dialog.showMessage('Start >=1 and Stop <=99')
+                dlg = QMessageBox(self)
+                dlg.setWindowTitle("Check start value!")
+                dlg.setIcon(QMessageBox.Warning)
+                dlg.setText("Start value should be greater than or equal to 1 and less than or equal to 99 (1>=Start<=99)")
+                button = dlg.exec()
+            elif (int(self.stop_pages.text()) <1 or int(self.stop_pages.text())>99):
+                dlg = QMessageBox(self)
+                dlg.setWindowTitle("Check stop value!")
+                dlg.setIcon(QMessageBox.Warning)
+                dlg.setText("Stop value should be greater than or equal to 1 and less than or equal to 99 (1>=Stop<=99)")
+                button = dlg.exec()
+            elif ( int(self.start_pages.text()) > int(self.stop_pages.text())):
+                dlg = QMessageBox(self)
+                dlg.setWindowTitle("Check start and stop value!")
+                dlg.setIcon(QMessageBox.Warning)
+                dlg.setText("Start value cannot be greater than stop value")
+                button = dlg.exec()
+            else:
+                #self.fetch.show()
+                page_start = (int(self.start_pages.text())*10)-10
+                page_stop = int(self.stop_pages.text()) * 10
+                keyword = self.search_box.text()
+                keyword = keyword.replace(" ", "+")
+                self.pbar.setRange(page_start, page_stop)
+                self.pbar.show()
+                for i in range(page_start, page_stop,10):
+                    url = (
+                        "https://scholar.google.com/scholar?start="
+                        + str(i)
+                        + "&q="
+                        + keyword
+                        + "+&hl=en&as_sdt=0,5"
+                    )
+                    print(url)
+                    # slowing down the loop
+                    #time.sleep(0.2)
+                    percentage = (((i))/(page_stop - page_start))*100
+                    # setting value to progress bar
+                    self.pbar.setValue(int(percentage))
+                    QApplication.processEvents() 
+                        # function for the get content of each page
+                    doc = self.get_paperinfo(url)
+                    if doc == 429:
+                        dlg = QMessageBox(self)
+                        dlg.setWindowTitle("Error:429!")
+                        dlg.setIcon(QMessageBox.Warning)
+                        dlg.setText("Error:429, Too many request, google scholar is blocking")
+                        button = dlg.exec()
+
+                        print("Error:429, Too many request, google scholar is blocking")
+                        break
+                    elif doc =="error":
+                        dlg = QMessageBox(self)
+                        dlg.setWindowTitle("Error!")
+                        dlg.setIcon(QMessageBox.Warning)
+                        dlg.setText("Unable to fetch webpage, try after sometime or raise an issue with status code error message")
+                        button = dlg.exec()
+
+                        print("Unable to fetch webpage, raise an issue with status code error message")
+                        break
+                    else:
+                        # function for the collecting tags
+                        paper_tag, cite_tag, link_tag, author_tag = self.get_tags(doc)
+
+                        # paper title from each page
+                        papername = self.get_papertitle(paper_tag)
+
+                        # year , author , publication of the paper
+                        year, publication, author = self.get_author_year_publi_info(author_tag)
+
+                        # url of the paper
+                        link = self.get_link(link_tag)
+
+                        # add in paper repo dict
+                        self.final = self.add_in_paper_repo(papername, year, author, publication, link)
+
+                        # use sleep to avoid status code 429
+                        sleep(30)
+                
+                #self.pbar.show()
+                self.pbar.setValue(100)
+                self.finish.show()
+                self.save_file.show()
+                
+                
+                #self.save_data_as_csv(final)
+                """
+                try:
+                    final.to_csv(file_name + "_"+page +".csv", sep=",", index=False, header=True)
+                except:
+                    print("Error in saving file")
+                sleep(2)
+                """
+                #print("\nDone, Thank You!")
+    @pyqtSlot()
+    def on_click(self):
+        print("\n")
+        for currentQTableWidgetItem in self.tableWidget.selectedItems():
+            print(currentQTableWidgetItem.row(), currentQTableWidgetItem.column(), currentQTableWidgetItem.text())
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    ex = App()
+    sys.exit(app.exec_())
